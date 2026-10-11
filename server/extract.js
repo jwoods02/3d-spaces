@@ -168,11 +168,12 @@ const WALL_WORDS =
   /\b(wall[- ]?mount(ed)?|wall[- ]?hung|coat rack|coat hooks?|peg rail|hooks?\b|wall shelf|floating shelf|mirror|wall light|sconce|picture|print|frame|clock|key holder|wall cabinet)\b/i;
 const FLOOR_WORDS = /\b(coat stand|hall stand|free[- ]?standing|floor[- ]?standing|floor mirror|leaning)\b/i;
 
-export function guessMount(name, text) {
+export function guessMount(name) {
   const n = name || '';
   if (FLOOR_WORDS.test(n)) return 'floor';
   if (WALL_WORDS.test(n)) return 'wall';
-  if (/\bwall[- ]?mount(ed)?\b|\bfix(es|ed)? to (the )?wall\b/i.test(text.slice(0, 20000))) return 'wall';
+  // The page text isn't used: shop menus and anti-tip kit notes ("fix to the
+  // wall") mention walls on almost every furniture page.
   return 'floor';
 }
 
@@ -196,7 +197,9 @@ export function extractHeuristic(html, url) {
     meta(html, 'og:title') ||
     decode(html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1] || '').trim() ||
     'Product';
-  const image = absolute(ldImage || meta(html, 'og:image') || meta(html, 'twitter:image'), url);
+  const image = absolute(ldImage || meta(html, 'og:image') || meta(html, 'twitter:image'), url)
+    // ImageKit-style CDNs (Cotswold Co) serve a 256px thumbnail by default.
+    ?.replace(/([?&]tr=w-)\d+/, '$1768');
   const offer = [].concat(p.offers || [])[0] || {};
   const price =
     offer.price != null
@@ -219,7 +222,7 @@ export function extractHeuristic(html, url) {
     image,
     price: price || null,
     ...dims,
-    mount: guessMount(name, text),
+    mount: guessMount(name),
     text,
   };
 }

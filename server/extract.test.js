@@ -16,6 +16,17 @@ test('reads the Cotswold Company coat rack page', () => {
   assert.match(p.image, /660\.028/);
 });
 
+test('reads the Cotswold Company storage bench page as floor furniture', () => {
+  const html = readFileSync(new URL('./fixtures/cotswoldco-storage-bench.html', import.meta.url), 'utf8');
+  const p = extractHeuristic(html, 'https://www.cotswoldco.com/x/');
+  assert.equal(p.name, 'Chester Dove Grey Small Shoe Storage Trunk Bench');
+  near(p.width, 0.6);
+  near(p.height, 0.6);
+  near(p.depth, 0.35);
+  assert.equal(p.mount, 'floor');
+  assert.match(p.image, /tr=w-768/);
+});
+
 test('labelled dimensions skip part sizes like seat height', () => {
   const d = parseDimensions('Seat height: 45cm\nHeight: 90 cm\nWidth: 60cm\nDepth: 55cm');
   near(d.height, 0.9);
@@ -32,9 +43,9 @@ test('lettered and triple formats', () => {
 });
 
 test('mount guess', () => {
-  assert.equal(guessMount('Oak Coat Stand', ''), 'floor');
-  assert.equal(guessMount('Round Wall Mirror', ''), 'wall');
-  assert.equal(guessMount('Shoe Bench', ''), 'floor');
+  assert.equal(guessMount('Oak Coat Stand'), 'floor');
+  assert.equal(guessMount('Round Wall Mirror'), 'wall');
+  assert.equal(guessMount('Shoe Bench'), 'floor');
 });
 
 test('rejects private addresses', () => {

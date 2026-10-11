@@ -37,7 +37,7 @@ export const SAMPLE_PRODUCT = {
   id: 'sample-coat-rack',
   name: 'Chester Oak 5 Hook Coat Rack',
   url: 'https://www.cotswoldco.com/hallway-furniture/coat-racks-hooks-stands/chester-oak-110cm-coat-rack/',
-  image: 'https://img.cotswoldco.com/824658dd/67ceb724f6d85f926b230f21/660.028_dfnf589d.5.jpg?tr=w-512',
+  image: 'https://img.cotswoldco.com/824658dd/67ceb724f6d85f926b230f21/660.028_dfnf589d.5.jpg?tr=w-768',
   price: '£99',
   width: 1.1,
   height: 0.185,
@@ -46,11 +46,24 @@ export const SAMPLE_PRODUCT = {
   color: '#b48a5a',
 };
 
+export const SAMPLE_BENCH = {
+  id: 'sample-storage-bench',
+  name: 'Chester Dove Grey Small Shoe Storage Trunk Bench',
+  url: 'https://www.cotswoldco.com/hallway-furniture/shoe-storage-bench/shoe-storage-benches/chester-grey-small-storage-bench/',
+  image: 'https://img.cotswoldco.com/c37963d6/67cebd58e1259fbe256da80f/620.138_fwkqgg4f.5.jpg?tr=w-768',
+  price: '£299',
+  width: 0.6,
+  height: 0.6,
+  depth: 0.35,
+  mount: 'floor',
+  color: '#a7a9a4',
+};
+
 export const useStore = create(
   persist(
     (set, get) => ({
       space: EXAMPLE_SPACE,
-      products: [SAMPLE_PRODUCT],
+      products: [SAMPLE_PRODUCT, SAMPLE_BENCH],
       items: [],
       selectedId: null,
       // { mode: 'place', productId } while dropping a new item from the bar,

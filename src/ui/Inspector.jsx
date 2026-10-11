@@ -1,6 +1,13 @@
 import { useStore, cm } from '../store.js';
-import { collisions, wallGaps, clampItem, WALLS, activeWalls } from '../geometry.js';
+import { collisions, wallGaps, clampItem, WALLS, activeWalls, worldBox, itemTransform, sizeOf } from '../geometry.js';
 import { CmField, Select } from './fields.jsx';
+
+// Distance from the item's footprint to each wall (to the wall, not the skirting).
+function floorGaps(space, product, item) {
+  const b = worldBox(itemTransform(space, product, item), sizeOf(product));
+  const d = { back: b.min.z, front: space.depth - b.max.z, left: b.min.x, right: space.width - b.max.x };
+  return activeWalls(space).map((id) => [`To ${WALLS[id].label.toLowerCase()}`, d[id]]);
+}
 
 export default function Inspector() {
   const id = useStore((s) => s.selectedId);
@@ -82,6 +89,13 @@ export default function Inspector() {
             <CmField label="Centre from left" value={item.x} onChange={(x) => move({ x })} />
             <CmField label="Centre from back" value={item.z} onChange={(z) => move({ z })} />
           </div>
+          <ul className="gaps">
+            {floorGaps(space, product, item).map(([label, d]) => (
+              <li key={label}>
+                {label}: {cm(d)} cm
+              </li>
+            ))}
+          </ul>
           <div className="row">
             <button onClick={() => rotate(-90)}>⟲ 90°</button>
             <button onClick={() => rotate(-15)}>⟲ 15°</button>
