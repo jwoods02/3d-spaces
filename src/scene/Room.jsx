@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
 import { Grid } from '@react-three/drei';
-import { useStore } from '../store.js';
+import { useStore, scanIsRoom } from '../store.js';
 import { activeWalls, wallFrame, wallBoxTransform } from '../geometry.js';
 
 function Wall({ space, id }) {
@@ -106,7 +106,7 @@ function fixtureParts({ type, w, h, d }) {
 
 export default function Room() {
   const space = useStore((s) => s.space);
-  const showRoom = useStore((s) => !s.scan?.url || s.scan?.showRoom !== false);
+  const showRoom = useStore((s) => !scanIsRoom(s));
   const walls = activeWalls(space);
   return (
     <group>
@@ -125,7 +125,7 @@ export default function Room() {
         visible={showRoom}
       />
       {showRoom && walls.map((id) => <Wall key={id} space={space} id={id} />)}
-      {space.useFixtures !== false && space.fixtures.map((f) => <Fixture key={f.id} space={space} f={f} />)}
+      {showRoom && space.useFixtures !== false && space.fixtures.map((f) => <Fixture key={f.id} space={space} f={f} />)}
     </group>
   );
 }

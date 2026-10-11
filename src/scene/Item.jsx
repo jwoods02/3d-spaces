@@ -105,6 +105,7 @@ export default function Item({ item, product, colliding }) {
           <div className={`tag ${colliding ? 'tag-bad' : ''}`}>
             {cm(product.width)} × {cm(product.height)} × {cm(product.depth)} cm
             {item.kind === 'wall' && <span> · bottom {cm(item.v)} cm up</span>}
+            {item.kind === 'surface' && item.onWall && <span> · bottom {cm(item.y)} cm up</span>}
           </div>
         </Html>
       )}

@@ -1,74 +1,78 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
-import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
-import { USDZLoader } from 'three/examples/jsm/loaders/USDZLoader.js';
 import { useStore } from '../store.js';
+import { loadScanFile, analyseScan, prepareMeshes, findWallPlanes, scanRef } from '../scan.js';
 
-async function loadScan(url, name) {
-  const ext = name.split('.').pop().toLowerCase();
-  if (ext === 'glb' || ext === 'gltf') return (await new GLTFLoader().loadAsync(url)).scene;
-  if (ext === 'obj') return await new OBJLoader().loadAsync(url);
-  if (ext === 'usdz') return await new USDZLoader().loadAsync(url);
-  if (ext === 'ply') {
-    const geo = await new PLYLoader().loadAsync(url);
-    geo.computeVertexNormals();
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: geo.hasAttribute('color'), color: geo.hasAttribute('color') ? '#fff' : '#ccc' });
-    return new THREE.Mesh(geo, mat);
-  }
-  throw new Error(`Can't open .${ext} files. Export the scan as GLB if you can.`);
-}
-
-// Shows an uploaded LiDAR scan at real size (scan apps export in metres).
-// It starts with its lowest point on the floor and its bounding box in the
-// room's back-left corner; the space panel can turn and nudge it from there.
+// Shows the uploaded LiDAR scan at real size (scan apps export in metres).
+// On load it's levelled so the floor is at y = 0, turned so the walls run
+// along the x/z axes, and its footprint is put in the room's back-left
+// corner. The space panel can turn, nudge and rescale it from there.
 export default function Scan() {
   const scan = useStore((s) => s.scan);
   const setScan = useStore((s) => s.setScan);
   const [object, setObject] = useState(null);
+  const group = useRef();
 
   useEffect(() => {
-    if (!scan?.url) return setObject(null);
+    if (!scan?.url) {
+      scanRef.meshes = [];
+      scanRef.root = null;
+      return setObject(null);
+    }
     let cancelled = false;
-    loadScan(scan.url, scan.name)
+    setScan({ loading: true, error: null });
+    loadScanFile(scan.url, scan.name)
       .then((obj) => {
         if (cancelled) return;
-        obj.traverse((o) => {
-          if (o.isMesh) {
-            o.castShadow = false;
-            o.receiveShadow = true;
-            const ms = [].concat(o.material);
-            ms.forEach((m) => (m.side = THREE.DoubleSide));
-          }
-        });
-        const box = new THREE.Box3().setFromObject(obj);
+        const { turnDeg, floorY, facesInward } = analyseScan(obj);
+        const aligned = new THREE.Group();
+        aligned.rotation.y = (turnDeg * Math.PI) / 180;
+        aligned.add(obj);
+        aligned.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(aligned);
         const size = box.getSize(new THREE.Vector3());
         const mid = box.getCenter(new THREE.Vector3());
-        // Centre it on its own footprint so rotating spins it in place.
-        obj.position.sub(new THREE.Vector3(mid.x, box.min.y, mid.z));
+        // Centre it on its own footprint so turning spins it in place.
         const wrapper = new THREE.Group();
-        wrapper.add(obj);
+        aligned.position.set(-mid.x, -floorY, -mid.z);
+        wrapper.add(aligned);
         wrapper.userData.target = { type: 'scan' };
+        scanRef.meshes = prepareMeshes(obj, facesInward);
+        scanRef.root = wrapper;
+        scanRef.planes = findWallPlanes(wrapper);
         setObject(wrapper);
         const prev = useStore.getState().scan;
         setScan({
-          size: [size.x, size.y, size.z],
+          loading: false,
+          size: [size.x, box.max.y - floorY, size.z],
+          autoTurn: turnDeg,
           offset: prev?.offset || [size.x / 2, 0, size.z / 2],
-          error: null,
+          scale: prev?.scale || 1,
+          rotation: prev?.rotation || 0,
         });
       })
-      .catch((err) => !cancelled && setScan({ error: err.message }));
+      .catch((err) => !cancelled && setScan({ loading: false, error: `Couldn't open the scan: ${err.message}` }));
     return () => {
       cancelled = true;
+      scanRef.meshes = [];
     };
   }, [scan?.url]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!object || scan?.visible === false) return null;
+  // Keep the scan's world-space bounds in the store for camera framing.
+  const pose = scan && JSON.stringify([scan.offset, scan.rotation, scan.scale]);
+  useLayoutEffect(() => {
+    if (!group.current || !object) return;
+    group.current.updateMatrixWorld(true);
+    const b = new THREE.Box3().setFromObject(group.current);
+    if (!b.isEmpty()) setScan({ bounds: [b.min.toArray(), b.max.toArray()] });
+  }, [object, pose]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!object) return null;
   const [ox, oy, oz] = scan.offset || [0, 0, 0];
   const rot = ((scan.rotation || 0) * Math.PI) / 180;
+  const s = scan.scale || 1;
   return (
-    <group position={[ox, oy, oz]} rotation={[0, rot, 0]}>
+    <group ref={group} position={[ox, oy, oz]} rotation={[0, rot, 0]} scale={[s, s, s]} visible={scan.visible !== false}>
       <primitive object={object} />
     </group>
   );

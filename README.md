@@ -1,9 +1,10 @@
 # 3D Spaces
 
-A browser prototype for trying furniture in a real space at 1:1 scale. Set up a
-corner of a room with its real measurements (or upload an iPhone LiDAR scan),
-mark where the radiator, switches and fuse box are, then paste product links to
-fill a Sims-style product bar and drag things into place.
+A browser prototype for trying furniture in a real space at 1:1 scale. Scan the
+space with an iPhone (Scaniverse, free, export as GLB), upload the scan, then
+paste product links to fill a Sims-style product bar and drag things into place
+on the scanned walls and floor. Without a scan you can type in a room's
+measurements instead.
 
 ## Run it
 
@@ -33,10 +34,16 @@ environment variables if you want Claude extraction.
   metres. Fixtures (radiator, switch, socket, fuse box, window, door) sit on a
   wall at a distance from its left end and a height from the floor. Open
   *Edit space* to type in your own measurements.
-- **Scans**: export a scan from Polycam, Scaniverse or a RoomPlan app as GLB
-  (OBJ, PLY and USDZ also load). Scans are already in metres, so they show at
-  real size. Wall items stick to scanned walls and floor items sit on the
-  scanned floor.
+- **Scans** (the main way in): in Scaniverse choose Mesh, scan slowly, and
+  export as GLB (OBJ, PLY and USDZ also load). Scans are in metres, so they
+  show at real size. On upload the scan is levelled (floor found from the
+  biggest flat patch) and squared up (walls turned onto the x/z axes). The
+  biggest flat walls are found too, so wall items sit on the wall itself even
+  when you drag them over a radiator. Overlaps are checked against the scan
+  mesh with a 1.5 cm allowance for bumpy surfaces (three-mesh-bvh).
+- **Checking scale**: *Tape measure* measures between two clicked points.
+  Measure something you know (a radiator), type its real length in *Scan &
+  space*, and the scan is rescaled, along with anything placed on it.
 - **Products**: `/api/product?url=…` fetches the page server-side (browsers
   can't read other sites directly), then pulls the name, photo, price and
   dimensions from structured data and text like `Width: 110cm`. If

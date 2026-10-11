@@ -1,44 +1,114 @@
-import { useStore, FIXTURE_TYPES, cm } from '../store.js';
+import { useState } from 'react';
+import * as THREE from 'three';
+import { useStore, FIXTURE_TYPES, cm, scanIsRoom } from '../store.js';
 import { WALLS, WALL_IDS, activeWalls } from '../geometry.js';
 import { CmField, Select } from './fields.jsx';
-import { saveScan, clearScan } from '../idb.js';
+import { uploadScan, removeScan } from '../scanActions.js';
 
-export default function SpacePanel() {
-  const space = useStore((s) => s.space);
+function ScanSection() {
   const scan = useStore((s) => s.scan);
+  const measure = useStore((s) => s.measure);
+  const setScan = useStore((s) => s.setScan);
+  const setScanPose = useStore((s) => s.setScanPose);
+  const [real, setReal] = useState('');
+
+  const pts = measure?.points;
+  const measured = pts?.length === 2 ? new THREE.Vector3(...pts[0]).distanceTo(new THREE.Vector3(...pts[1])) : null;
+  const scale = scan?.scale || 1;
+
+  return (
+    <>
+      <h3>iPhone scan</h3>
+      {!scan?.url && (
+        <p className="small">
+          Scan the space in <b>Scaniverse</b> (free, choose Mesh) or Polycam, export as <b>GLB</b> and upload it here. OBJ, PLY and USDZ also open.
+        </p>
+      )}
+      <label className="file block">
+        {scan?.name ? `Replace ${scan.name}` : 'Upload scan…'}
+        <input type="file" accept=".glb,.gltf,.obj,.ply,.usdz" hidden onChange={(e) => uploadScan(e.target.files[0])} />
+      </label>
+      {scan?.error && <p className="error">{scan.error}</p>}
+      {scan?.url && (
+        <>
+          {scan.size && (
+            <p className="small">
+              {cm(scan.size[0] * scale)} × {cm(scan.size[2] * scale)} cm floor area, {cm(scan.size[1] * scale)} cm tall. Levelled and squared up
+              automatically{scan.autoTurn ? ` (turned ${Math.abs(scan.autoTurn).toFixed(1)}°)` : ''}.
+            </p>
+          )}
+
+          <h3>Check the scale</h3>
+          {measured ? (
+            <form
+              className="row"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const r = Number(real) / 100;
+                if (r > 0) setScanPose({ scale: (scale * r) / measured });
+                setReal('');
+              }}
+            >
+              <span className="small">Tape says {cm(measured)} cm. Real length:</span>
+              <div className="unit grow">
+                <input type="number" step="0.1" value={real} onChange={(e) => setReal(e.target.value)} placeholder={String(cm(measured))} />
+                <em>cm</em>
+              </div>
+              <button type="submit" disabled={!(Number(real) > 0)}>
+                Fix scale
+              </button>
+            </form>
+          ) : (
+            <p className="small">Use the tape measure on something you know, like the radiator's width, then type its real length here.</p>
+          )}
+          {scale !== 1 && (
+            <p className="small">
+              Scale {(scale * 100).toFixed(1)}%{' '}
+              <button className="link" onClick={() => setScanPose({ scale: 1 })}>
+                reset
+              </button>
+            </p>
+          )}
+
+          <h3>Turn</h3>
+          <p className="small">Turns the scan so a different wall is the back wall. Anything placed turns with it.</p>
+          <div className="row">
+            <button onClick={() => setScanPose({ rotation: ((scan.rotation || 0) + 270) % 360 })}>⟲ 90°</button>
+            <button onClick={() => setScanPose({ rotation: ((scan.rotation || 0) + 359) % 360 })}>⟲ 1°</button>
+            <button onClick={() => setScanPose({ rotation: ((scan.rotation || 0) + 1) % 360 })}>⟳ 1°</button>
+            <button onClick={() => setScanPose({ rotation: ((scan.rotation || 0) + 90) % 360 })}>⟳ 90°</button>
+          </div>
+          <div className="checks">
+            <label>
+              <input type="checkbox" checked={scan.visible !== false} onChange={(e) => setScan({ visible: e.target.checked })} /> Show scan
+            </label>
+            <label>
+              <input type="checkbox" checked={scan.showRoom === true} onChange={(e) => setScan({ showRoom: e.target.checked })} /> Use measured room instead
+            </label>
+          </div>
+          <button className="ghost" onClick={() => confirm('Remove the scan and anything placed on it?') && removeScan()}>
+            Remove scan
+          </button>
+        </>
+      )}
+    </>
+  );
+}
+
+function MeasuredRoom() {
+  const space = useStore((s) => s.space);
   const setSpace = useStore((s) => s.setSpace);
   const setWalls = useStore((s) => s.setWalls);
   const addFixture = useStore((s) => s.addFixture);
   const updateFixture = useStore((s) => s.updateFixture);
   const removeFixture = useStore((s) => s.removeFixture);
-  const setScan = useStore((s) => s.setScan);
-  const setPanel = useStore((s) => s.setPanel);
   const resetSpace = useStore((s) => s.resetSpace);
   const walls = activeWalls(space);
 
-  async function onScan(file) {
-    if (!file) return;
-    if (scan?.url) URL.revokeObjectURL(scan.url);
-    await saveScan(file).catch(() => {});
-    useStore.setState({ scan: null });
-    setScan({ url: URL.createObjectURL(file), name: file.name, rotation: 0, visible: true, showRoom: false });
-  }
-  const nudge = (i, d) => {
-    const o = [...(scan.offset || [0, 0, 0])];
-    o[i] += d;
-    setScan({ offset: o });
-  };
-
   return (
-    <aside className="panel space">
-      <header>
-        <h2>Space</h2>
-        <button className="ghost" onClick={() => setPanel(null)} aria-label="Close">
-          ✕
-        </button>
-      </header>
-      <p className="small">Measure with a tape and type the real numbers in. Everything is 1:1.</p>
-
+    <>
+      <h3>Measured room</h3>
+      <p className="small">Without a scan, type the room's real measurements in here. Everything is 1:1.</p>
       <label className="field">
         <span>Name</span>
         <input value={space.name} onChange={(e) => setSpace({ name: e.target.value })} />
@@ -95,66 +165,26 @@ export default function SpacePanel() {
           options={[['', 'Choose…'], ...Object.entries(FIXTURE_TYPES).map(([k, t]) => [k, t.label])]}
         />
       )}
-
-      <h3>iPhone scan</h3>
-      <p className="small">
-        Scan the space with a LiDAR app (Polycam, Scaniverse, or a RoomPlan app) and export it as <b>GLB</b> (OBJ, PLY and USDZ also open).
-        Scans are already life size, so you can check your measurements against it.
-      </p>
-      <label className="file block">
-        {scan?.name ? `Replace ${scan.name}` : 'Upload scan…'}
-        <input type="file" accept=".glb,.gltf,.obj,.ply,.usdz" hidden onChange={(e) => onScan(e.target.files[0])} />
-      </label>
-      {scan?.error && <p className="error">{scan.error}</p>}
-      {scan?.url && (
-        <>
-          {scan.size && (
-            <p className="small">
-              Scan size: {cm(scan.size[0])} × {cm(scan.size[2])} cm, {cm(scan.size[1])} cm tall
-            </p>
-          )}
-          <div className="checks">
-            <label>
-              <input type="checkbox" checked={scan.visible !== false} onChange={(e) => setScan({ visible: e.target.checked })} /> Show scan
-            </label>
-            <label>
-              <input type="checkbox" checked={scan.showRoom !== false} onChange={(e) => setScan({ showRoom: e.target.checked })} /> Show walls
-            </label>
-            <label>
-              <input type="checkbox" checked={space.useFixtures !== false} onChange={(e) => setSpace({ useFixtures: e.target.checked })} /> Show fixtures
-            </label>
-          </div>
-          <div className="row">
-            <button onClick={() => setScan({ rotation: ((scan.rotation || 0) + 270) % 360 })}>⟲ 90°</button>
-            <button onClick={() => setScan({ rotation: ((scan.rotation || 0) + 359) % 360 })}>⟲ 1°</button>
-            <button onClick={() => setScan({ rotation: ((scan.rotation || 0) + 1) % 360 })}>⟳ 1°</button>
-            <button onClick={() => setScan({ rotation: ((scan.rotation || 0) + 90) % 360 })}>⟳ 90°</button>
-          </div>
-          <div className="row">
-            <button onClick={() => nudge(0, -0.01)}>← 1cm</button>
-            <button onClick={() => nudge(0, 0.01)}>→ 1cm</button>
-            <button onClick={() => nudge(2, -0.01)}>↑ 1cm</button>
-            <button onClick={() => nudge(2, 0.01)}>↓ 1cm</button>
-            <button onClick={() => nudge(1, 0.005)}>Up</button>
-            <button onClick={() => nudge(1, -0.005)}>Down</button>
-          </div>
-          <button
-            className="ghost"
-            onClick={() => {
-              URL.revokeObjectURL(scan.url);
-              clearScan().catch(() => {});
-              useStore.setState({ scan: null });
-            }}
-          >
-            Remove scan
-          </button>
-        </>
-      )}
-
-      <h3>Reset</h3>
-      <button className="ghost" onClick={() => confirm('Reset the space to the example hallway corner?') && resetSpace()}>
-        Reset to example space
+      <button className="ghost" onClick={() => confirm('Reset the measured room to the example hallway corner?') && resetSpace()}>
+        Reset to example room
       </button>
+    </>
+  );
+}
+
+export default function SpacePanel() {
+  const setPanel = useStore((s) => s.setPanel);
+  const isScan = useStore(scanIsRoom);
+  return (
+    <aside className="panel space">
+      <header>
+        <h2>Space</h2>
+        <button className="ghost" onClick={() => setPanel(null)} aria-label="Close">
+          ✕
+        </button>
+      </header>
+      <ScanSection />
+      {!isScan && <MeasuredRoom />}
     </aside>
   );
 }

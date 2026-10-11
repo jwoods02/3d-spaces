@@ -1,6 +1,46 @@
+import { useMemo } from 'react';
 import { create } from 'zustand';
+import * as THREE from 'three';
 import { persist } from 'zustand/middleware';
 import { autoPlace, clampItem } from './geometry.js';
+import { autoPlaceOnScan } from './scanPlacement.js';
+
+// True when a scan is the room and the measured walls are hidden.
+export const scanIsRoom = (s) => Boolean(s.scan?.url && s.scan.showRoom !== true);
+
+// The measured room as placement should see it: with a scan as the room, its
+// fixtures are in the scan itself, so the typed-in ones are left out.
+export const roomSpace = (s) => (scanIsRoom(s) ? { ...s.space, useFixtures: false } : s.space);
+
+export function useRoomSpace() {
+  const space = useStore((s) => s.space);
+  const isScan = useStore(scanIsRoom);
+  return useMemo(() => (isScan ? { ...space, useFixtures: false } : space), [space, isScan]);
+}
+
+// The box the camera frames: the scan's bounds, or the measured room.
+export function viewFrame(s) {
+  if (scanIsRoom(s) && s.scan.bounds) {
+    const [min, max] = s.scan.bounds;
+    return { minX: min[0], maxX: max[0], minZ: min[2], maxZ: max[2], height: Math.max(max[1], 1) };
+  }
+  return { minX: 0, maxX: s.space.width, minZ: 0, maxZ: s.space.depth, height: s.space.height };
+}
+
+function findSpot(s, product, allItems) {
+  const items = allItems.filter((i) => (i.kind === 'surface') === scanIsRoom(s));
+  if (scanIsRoom(s)) {
+    const spot = autoPlaceOnScan(roomSpace(s), product, items, s.products, s.scan.bounds);
+    if (spot) return spot;
+    // Nowhere free: drop it in the middle of the scan and let the warning show.
+    const [min, max] = s.scan.bounds || [[0, 0, 0], [1, 0, 1]];
+    return {
+      kind: 'surface', onWall: product.mount === 'wall', rot: 0,
+      x: (min[0] + max[0]) / 2, z: (min[2] + max[2]) / 2, y: product.mount === 'wall' ? 1.4 : 0,
+    };
+  }
+  return autoPlace(s.space, product, items, s.products);
+}
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -102,8 +142,9 @@ export const useStore = create(
             if (it.productId !== id) return it;
             const p = { ...s.products.find((x) => x.id === id), ...patch };
             // Switching between wall and floor mounting needs a fresh spot.
-            if (patch.mount && (patch.mount === 'wall') !== (it.kind === 'wall') && it.kind !== 'surface') {
-              return { ...it, ...autoPlace(s.space, p, s.items.filter((o) => o.id !== it.id), s.products) };
+            const isWall = it.kind === 'wall' || (it.kind === 'surface' && it.onWall);
+            if (patch.mount && (patch.mount === 'wall') !== isWall) {
+              return { id: it.id, productId: it.productId, ...findSpot(s, p, s.items.filter((o) => o.id !== it.id)) };
             }
             return clampItem(s.space, p, it);
           }),
@@ -117,7 +158,7 @@ export const useStore = create(
       placeAuto: (productId) => {
         const s = get();
         const p = s.products.find((x) => x.id === productId);
-        const spot = autoPlace(s.space, p, s.items, s.products);
+        const spot = findSpot(s, p, s.items);
         const item = { id: uid(), productId, ...spot };
         set({ items: [...s.items, item], selectedId: item.id });
         return item;
@@ -134,8 +175,7 @@ export const useStore = create(
         const it = s.items.find((x) => x.id === id);
         if (!it) return;
         const p = s.products.find((x) => x.id === it.productId);
-        const spot = autoPlace(s.space, p, s.items, s.products);
-        get().addItem({ productId: it.productId, ...spot });
+        get().addItem({ productId: it.productId, ...findSpot(s, p, s.items) });
       },
 
       select: (id) => set({ selectedId: id }),
@@ -143,6 +183,28 @@ export const useStore = create(
       setPanel: (panel) => set({ panel }),
       setView: (view) => set({ view }),
       setScan: (scan) => set((s) => ({ scan: scan && { ...(s.scan || {}), ...scan } })),
+      // Turns, moves or rescales the scan, carrying anything placed on it along.
+      setScanPose: (patch) =>
+        set((s) => {
+          const old = s.scan;
+          const next = { ...old, ...patch };
+          const m = (sc) =>
+            new THREE.Matrix4().compose(
+              new THREE.Vector3(...(sc.offset || [0, 0, 0])),
+              new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), ((sc.rotation || 0) * Math.PI) / 180),
+              new THREE.Vector3().setScalar(sc.scale || 1),
+            );
+          const delta = m(next).multiply(m(old).invert());
+          const turn = (((next.rotation || 0) - (old.rotation || 0)) * Math.PI) / 180;
+          const items = s.items.map((it) => {
+            if (it.kind !== 'surface') return it;
+            const p = new THREE.Vector3(it.x, it.y, it.z).applyMatrix4(delta);
+            return { ...it, x: p.x, y: p.y, z: p.z, rot: (it.rot || 0) + turn };
+          });
+          return { scan: next, items, measure: s.measure && { ...s.measure, points: [] } };
+        }),
+      measure: null, // { active, points: [[x,y,z], ...] }
+      setMeasure: (measure) => set({ measure }),
 
       importState: (data) =>
         set({
@@ -160,7 +222,9 @@ export const useStore = create(
         space: s.space,
         products: s.products,
         items: s.items,
-        scan: s.scan && { rotation: s.scan.rotation, offset: s.scan.offset, visible: s.scan.visible, showRoom: s.scan.showRoom },
+        scan: s.scan && {
+          rotation: s.scan.rotation, offset: s.scan.offset, scale: s.scan.scale, visible: s.scan.visible, showRoom: s.scan.showRoom,
+        },
       }),
     },
   ),

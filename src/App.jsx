@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { useStore } from './store.js';
+import { useStore, scanIsRoom } from './store.js';
+import { uploadScan } from './scanActions.js';
 import { activeWalls, clampItem, WALLS } from './geometry.js';
 import { loadScan } from './idb.js';
 import Scene from './scene/Scene.jsx';
@@ -14,7 +15,14 @@ function TopBar() {
   const panel = useStore((s) => s.panel);
   const setPanel = useStore((s) => s.setPanel);
   const importState = useStore((s) => s.importState);
+  const isScan = useStore(scanIsRoom);
+  const scanName = useStore((s) => s.scan?.name);
+  const hasScan = useStore((s) => Boolean(s.scan?.url));
+  const measuring = useStore((s) => Boolean(s.measure?.active));
+  const setMeasure = useStore((s) => s.setMeasure);
   const fileRef = useRef();
+  const scanRef = useRef();
+  const viewIds = isScan ? ['back', 'left', 'right', 'front'] : activeWalls(space);
 
   const exportJson = () => {
     const { space, products, items } = useStore.getState();
@@ -29,20 +37,33 @@ function TopBar() {
   return (
     <header className="top">
       <strong className="brand">3D Spaces</strong>
-      <span className="space-name">{space.name}</span>
+      <span className="space-name">{isScan ? scanName : space.name}</span>
       <nav className="views">
         <button className={view === '3d' ? 'on' : ''} onClick={() => setView('3d')}>
           3D
         </button>
-        {activeWalls(space).map((id) => (
+        {viewIds.map((id) => (
           <button key={id} className={view === id ? 'on' : ''} onClick={() => setView(id)}>
-            {WALLS[id].label}
+            {isScan ? `Face ${id}` : WALLS[id].label}
           </button>
         ))}
       </nav>
       <div className="spacer" />
+      {!hasScan && (
+        <button className="primary" onClick={() => scanRef.current.click()}>
+          Upload iPhone scan
+        </button>
+      )}
+      <input ref={scanRef} type="file" accept=".glb,.gltf,.obj,.ply,.usdz" hidden onChange={(e) => uploadScan(e.target.files[0])} />
+      <button
+        className={measuring ? 'on' : ''}
+        onClick={() => setMeasure(measuring ? null : { active: true, points: [] })}
+        title="Click two points to measure between them"
+      >
+        Tape measure
+      </button>
       <button className={panel === 'space' ? 'on' : ''} onClick={() => setPanel(panel === 'space' ? null : 'space')}>
-        Edit space
+        {hasScan ? 'Scan & space' : 'Edit space'}
       </button>
       <button className="ghost" onClick={exportJson}>
         Export
@@ -88,7 +109,12 @@ function useKeyboard() {
       const [dx, dy] = dirs[k];
       if (item.kind === 'wall') set({ u: item.u + dx * step, v: item.v + dy * step });
       else if (item.kind === 'floor') set({ x: item.x + dx * step, z: item.z - dy * step });
-      else s.updateItem(item.id, { x: item.x + dx * step, z: item.z - dy * step });
+      else if (item.onWall) {
+        // Slide along the wall it's on, or up and down.
+        const rx = Math.cos(item.rot);
+        const rz = -Math.sin(item.rot);
+        s.updateItem(item.id, { x: item.x + rx * dx * step, z: item.z + rz * dx * step, y: item.y + dy * step });
+      } else s.updateItem(item.id, { x: item.x + dx * step, z: item.z - dy * step });
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -98,6 +124,8 @@ function useKeyboard() {
 export default function App() {
   const panel = useStore((s) => s.panel);
   const drag = useStore((s) => s.drag);
+  const measuring = useStore((s) => Boolean(s.measure?.active));
+  const scanLoading = useStore((s) => Boolean(s.scan?.loading));
   useKeyboard();
 
   // Bring back the last scan after a reload.
@@ -119,6 +147,8 @@ export default function App() {
         {panel === 'space' && <SpacePanel />}
         <Inspector />
         {drag?.mode === 'place' && <div className="toast">Click in the room to place it. Esc cancels.</div>}
+        {measuring && !drag && <div className="toast">Click two points to measure. Click the button again to stop.</div>}
+        {scanLoading && <div className="toast">Loading scan…</div>}
       </main>
       <ProductBar />
     </div>

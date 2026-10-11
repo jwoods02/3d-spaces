@@ -133,3 +133,7 @@ input, select {
   .bar-add { width: 100%; }
   .manual { width: 100%; }
 }
+
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tag-measure { background: #b45309; font-weight: 600; }
+.unit.grow { flex: 1; min-width: 80px; }

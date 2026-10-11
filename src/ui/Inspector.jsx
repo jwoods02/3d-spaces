@@ -1,4 +1,5 @@
-import { useStore, cm } from '../store.js';
+import { useStore, cm, useRoomSpace, scanIsRoom } from '../store.js';
+import { hitsScan, scanGaps } from '../scanPlacement.js';
 import { collisions, wallGaps, clampItem, WALLS, activeWalls, worldBox, itemTransform, sizeOf } from '../geometry.js';
 import { CmField, Select } from './fields.jsx';
 
@@ -11,7 +12,7 @@ function floorGaps(space, product, item) {
 
 export default function Inspector() {
   const id = useStore((s) => s.selectedId);
-  const space = useStore((s) => s.space);
+  const space = useRoomSpace();
   const items = useStore((s) => s.items);
   const products = useStore((s) => s.products);
   const updateItem = useStore((s) => s.updateItem);
@@ -20,11 +21,14 @@ export default function Inspector() {
   const duplicateItem = useStore((s) => s.duplicateItem);
   const select = useStore((s) => s.select);
 
-  const item = items.find((i) => i.id === id);
+  const isScan = useStore(scanIsRoom);
+  const item = items.find((i) => i.id === id && (i.kind === 'surface') === isScan);
   const product = item && products.find((p) => p.id === item.productId);
   if (!item || !product) return null;
 
-  const hits = collisions(space, products, items, item);
+  const roomItems = items.filter((i) => (i.kind === 'surface') === isScan);
+  const hits = collisions(space, products, roomItems, item);
+  const inScan = item.kind === 'surface' && hitsScan(product, item);
   const move = (patch) => updateItem(item.id, clampItem(space, product, { ...item, ...patch }));
   const rotate = (deg) => updateItem(item.id, { rot: (item.rot || 0) + (deg * Math.PI) / 180, manualRot: true });
   const gaps = item.kind === 'wall' ? wallGaps(space, products, items, item) : null;
@@ -43,7 +47,9 @@ export default function Inspector() {
         </a>
       )}
 
-      {hits.length > 0 && <p className="warn">Overlaps {hits.map((h) => h.label).join(', ')}</p>}
+      {(hits.length > 0 || inScan) && (
+        <p className="warn">Overlaps {[...hits.map((h) => h.label), ...(inScan ? ['something in the scan'] : [])].join(', ')}</p>
+      )}
 
       <h3>Size</h3>
       <div className="grid3">
@@ -106,7 +112,14 @@ export default function Inspector() {
       )}
       {item.kind === 'surface' && (
         <>
-          <p className="small">Placed on the scan. Drag it to move it.</p>
+          <p className="small">{item.onWall ? `Bottom edge ${cm(item.y)} cm above the floor.` : 'Standing on the scanned floor.'}</p>
+          <ul className="gaps">
+            {scanGaps(space, products, roomItems, item).map((g) => (
+              <li key={g.side}>
+                <span>{g.side}</span> {cm(g.dist)} cm{g.label !== 'scan' ? ` to ${g.label}` : ''}
+              </li>
+            ))}
+          </ul>
           {!item.onWall && (
             <div className="row">
               <button onClick={() => rotate(-90)}>⟲ 90°</button>
